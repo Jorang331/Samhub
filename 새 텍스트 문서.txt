@@ -1,0 +1,8 @@
+cd c:\Users\user\Desktop\html\server
+node Node.js
+
+cd C:\Users\User\Desktop\aws\server
+node Node.js
+
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=Samcheokhubadmin2026!@
