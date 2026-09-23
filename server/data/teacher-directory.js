@@ -9,7 +9,7 @@ const teacherDirectory = [
   { name: '조현덕', department: '2학년부', role: '2학년부장 · 담임', location: '3층 2학년 교무실', classRoom: '2-3' },
   { name: '김슬하', department: '2학년부', role: '담임', location: '3층 2학년 교무실', classRoom: '2-4' },
   { name: '이선혜', department: '2학년부', role: '담임', location: '3층 2학년 교무실', classRoom: '2-5' },
-  { name: '최하영', department: '3학년부', role: '담임', location: '3층 3학년 교무실', classRoom: '3-1' },
+  { name: '최희영', department: '3학년부', role: '담임', location: '3층 3학년 교무실', classRoom: '3-1' },
   { name: '안수연', department: '3학년부', role: '담임', location: '3층 3학년 교무실', classRoom: '3-2' },
   { name: '김연혜', department: '3학년부', role: '담임', location: '3층 3학년 교무실', classRoom: '3-3' },
   { name: '송하윤', department: '3학년부', role: '담임', location: '3층 3학년 교무실', classRoom: '3-4' },

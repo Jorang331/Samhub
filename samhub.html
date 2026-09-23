@@ -528,6 +528,14 @@
                 <button type="button" onclick="togglePasswordVisibility()" id="passwordVisibilityButton" aria-label="비밀번호 보기" title="비밀번호 보기" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-brand-600"><i class="fa-regular fa-eye"></i></button>
               </div>
             </div>
+            <div id="authPagePasswordConfirmField" class="hidden mb-5">
+              <label class="block text-xs font-bold text-slate-500 mb-1">비밀번호 재확인</label>
+              <input type="password" id="authPagePasswordConfirmInput" autocomplete="new-password" minlength="8" placeholder="비밀번호를 다시 입력하세요" class="w-full bg-slate-50 border border-slate-200 text-sm rounded-xl px-3 py-3 focus:outline-none focus:border-brand-500">
+            </div>
+            <label id="authPageRememberField" class="hidden flex items-center gap-2 mb-6 text-xs text-slate-600 cursor-pointer">
+              <input type="checkbox" id="authPageRememberInput" class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+              <span>로그인 상태 유지</span>
+            </label>
             <label id="authPageConsentField" class="hidden flex items-start gap-2 mb-6 text-xs text-slate-600 cursor-pointer">
               <input type="checkbox" id="authPageConsentInput" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
                 <span>회원가입 신청을 위해 이름, 번호, 본인확인 이미지 등의 정보를 수집·이용하는 데 동의합니다.</span>
@@ -707,6 +715,7 @@
                 <h4 class="font-bold text-sm text-slate-900">내 일정</h4>
               </div>
               <div id="customScheduleList" class="space-y-2"></div>
+              <button id="academicScheduleToggle" type="button" onclick="toggleAcademicScheduleList()" class="hidden mt-2 w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-100 transition"></button>
               <div id="expiredCustomScheduleSection" class="mt-4 hidden">
                 <div class="mb-2 flex items-center justify-between">
                   <h4 class="font-bold text-xs text-slate-700">지난 내 일정</h4>
@@ -1861,10 +1870,76 @@
     let customCategories = [];
     const AUTH_TOKEN_KEY = 'samcheok_api_token';
     const AUTH_SESSION_KEY = 'samcheok_auth_session';
+    const AUTH_REMEMBER_KEY = 'samcheok_remember_login';
+    const MENU_PATHS = {
+      home: 'home', board: 'board', notices: 'notices', timetable: 'timetable',
+      cafeteria: 'cafeteria', schedule: 'schedule', calculator: 'calculator',
+      teachers: 'teachers', mypage: 'mypage', auth: 'auth', admin: 'admin',
+      applications: 'applications', users: 'users'
+    };
 
     function getAuthStorage() {
-      return window.sessionStorage;
+      return localStorage.getItem(AUTH_REMEMBER_KEY) === 'true' ? window.localStorage : window.sessionStorage;
     }
+
+    function getTabFromPath() {
+      if (window.location.protocol === 'file:') return 'home';
+      const segment = window.location.pathname.split('/').filter(Boolean).pop() || 'home';
+      return Object.keys(MENU_PATHS).find(tabId => MENU_PATHS[tabId] === segment) || 'home';
+    }
+
+    function getRouteFromPath() {
+      if (window.location.protocol === 'file:') return { tabId: 'home', category: 'all' };
+      const segments = window.location.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment));
+      if (segments[0] === 'board') return { tabId: 'board', category: segments[1] || 'all', postId: segments[2] || null };
+      if (segments[0] === 'notices') return { tabId: 'notices', category: 'all', noticeId: segments[1] || null };
+      if (segments[0] === 'auth') return { tabId: 'auth', category: 'all', authMode: segments[1] === 'signup' ? 'signup' : 'login' };
+      const tabId = Object.keys(MENU_PATHS).find(key => MENU_PATHS[key] === segments[0]) || 'home';
+      return { tabId, category: 'all' };
+    }
+
+    function updateMenuUrl(tabId, replace = false, category = 'all') {
+      if (window.location.protocol === 'file:') return;
+      const path = tabId === 'board' && category && category !== 'all'
+        ? `/board/${encodeURIComponent(category)}`
+        : tabId === 'auth'
+          ? `/auth/${authMode === 'signup' ? 'signup' : 'login'}`
+        : `/${MENU_PATHS[tabId] || MENU_PATHS.home}`;
+      if (window.location.pathname === path) return;
+      window.history[replace ? 'replaceState' : 'pushState']({ tabId }, '', path);
+    }
+
+    function updatePostUrl(post, replace = false) {
+      if (window.location.protocol === 'file:' || !post) return;
+      const category = post.category === 'freshman' ? 'grade1' : post.category || 'all';
+      const path = `/board/${encodeURIComponent(category)}/${encodeURIComponent(post.id)}`;
+      if (window.location.pathname === path) return;
+      window.history[replace ? 'replaceState' : 'pushState']({ tabId: 'board', postId: post.id }, '', path);
+    }
+
+    function updateNoticeUrl(notice, replace = false) {
+      if (window.location.protocol === 'file:' || !notice) return;
+      const path = `/notices/${encodeURIComponent(notice.id)}`;
+      if (window.location.pathname === path) return;
+      window.history[replace ? 'replaceState' : 'pushState']({ tabId: 'notices', noticeId: notice.id }, '', path);
+    }
+
+    window.addEventListener('popstate', () => {
+      const route = getRouteFromPath();
+      state.activeCategory = route.category;
+      switchTab(route.tabId, false);
+      if (route.tabId === 'board' && route.postId) {
+        const linkedPost = state.posts.find(post => String(post.id) === String(route.postId));
+        if (linkedPost) openPostDetail(linkedPost.id, false);
+      } else if (route.tabId === 'notices' && route.noticeId) {
+        const linkedNotice = notices.find(notice => String(notice.id) === String(route.noticeId));
+        if (linkedNotice) openNoticeDetail(linkedNotice.id, false);
+      } else if (route.tabId === 'notices') {
+        backToNoticeList(false);
+      } else if (state.currentPostDetailId !== null) {
+        backToBoard(false);
+      }
+    });
 
     async function apiRequest(endpoint, options = {}) {
       const headers = { ...(options.headers || {}) };
@@ -1879,6 +1954,45 @@
       }
       if (!response.ok) throw new Error(data?.message || '서버 요청에 실패했습니다.');
       return data;
+    }
+
+    let accountPreferences = {};
+    let preferenceSaveTimer = null;
+
+    async function loadAccountPreferences() {
+      if (!state.user.isLoggedIn || state.user.isDeveloper) return;
+      try {
+        accountPreferences = await apiRequest('/auth/preferences') || {};
+        const timetableKey = `${state.timetableGrade}-${state.timetableClassNum}`;
+        const savedTimetable = accountPreferences.timetables?.[timetableKey];
+        if (Array.isArray(savedTimetable) && savedTimetable.length === 5 && savedTimetable.every(day => Array.isArray(day) && day.length === 7)) {
+          state.timetable = savedTimetable;
+        }
+        if (accountPreferences.groupSubjects && typeof accountPreferences.groupSubjects === 'object') {
+          state.groupSubjects = accountPreferences.groupSubjects;
+        }
+      } catch (error) {
+        showToast('계정별 저장 데이터를 불러오지 못했습니다.');
+      }
+    }
+
+    async function saveAccountPreferences(changes) {
+      if (!state.user.isLoggedIn || state.user.isDeveloper) return;
+      accountPreferences = { ...accountPreferences, ...changes };
+      try {
+        accountPreferences = await apiRequest('/auth/preferences', {
+          method: 'PATCH',
+          body: JSON.stringify(changes)
+        });
+      } catch (error) {
+        showToast('계정별 저장에 실패했습니다.');
+      }
+    }
+
+    function queueAccountPreferencesSave(changes) {
+      accountPreferences = { ...accountPreferences, ...changes };
+      clearTimeout(preferenceSaveTimer);
+      preferenceSaveTimer = setTimeout(() => saveAccountPreferences(changes), 350);
     }
 
     const builtInCategories = [
@@ -2091,7 +2205,7 @@
           ...post,
           category: post.category === 'freshman' ? 'grade1' : post.category,
           author: post.author || post.ownerName || '삼척고 학생',
-          date: post.date || new Date(post.createdAt).toLocaleDateString('ko-KR'),
+          date: formatPostDate(post.createdAt, post.date),
           comments: (post.comments || []).map(comment => ({
             ...comment,
             date: comment.date || new Date(comment.createdAt).toLocaleDateString('ko-KR')
@@ -2099,7 +2213,7 @@
         }));
         syncedPosts.forEach(post => {
           const previousPost = previousPosts.find(item => String(item.id) === String(post.id));
-          if (!previousPost || !isMyPost(previousPost)) return;
+          if (!previousPost || String(previousPost.authorId) !== String(state.user.id)) return;
           const previousCommentIds = new Set((previousPost.comments || []).map(comment => String(comment.id)));
           post.comments
             .filter(comment => !previousCommentIds.has(String(comment.id)) && String(comment.authorId) !== String(state.user.id))
@@ -2162,31 +2276,12 @@
     }
 
     function loadGroupSubjects() {
-      try {
-        const saved = JSON.parse(localStorage.getItem(`samcheok_group_subjects_${getAccountStorageSuffix()}`) || '{}');
-        return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-      } catch (error) {
-        return {};
-      }
+      return {};
     }
 
     function getSavedTimetable(grade, classNum) {
-      const key = `samcheok_tt_${getAccountStorageSuffix()}_${grade}-${classNum}`;
-      const saved = localStorage.getItem(key);
-      if (!saved) return getImportedTimetable(grade, classNum);
-      try {
-        const timetable = JSON.parse(saved);
-        if (Array.isArray(timetable) && timetable.length === 5 && timetable.every(day => Array.isArray(day) && day.length === 7)) {
-          if (grade === 1 && classNum === 2 && timetable[2][6] !== '-' && timetable[4][6] === '-') {
-            timetable[4][6] = timetable[2][6];
-            timetable[2][6] = '-';
-            localStorage.setItem(key, JSON.stringify(timetable));
-          }
-          return timetable;
-        }
-      } catch (error) {
-        localStorage.removeItem(key);
-      }
+      const timetable = accountPreferences.timetables?.[`${grade}-${classNum}`];
+      if (Array.isArray(timetable) && timetable.length === 5 && timetable.every(day => Array.isArray(day) && day.length === 7)) return timetable;
       return getImportedTimetable(grade, classNum);
     }
 
@@ -2231,18 +2326,19 @@
       searchQuery: '',
       currentPostDetailId: null,
       gradeSystem: '5',
-      schoolTotal: Number(localStorage.getItem('samcheok_school_total')) || 0,
+      schoolTotal: 0,
       user: initialAuthSession,
       notifications: loadNotifications(),
       timetable: initialAuthSession.isLoggedIn ? getSavedTimetable(initialTimetableGrade, initialTimetableClassNum) : getImportedTimetable(initialTimetableGrade, initialTimetableClassNum),
       activeCalcSemester: '1-1',
+      showAllAcademicSchedules: false,
       annualCalendarMonth: Math.min(Math.max((new Date().getFullYear() - 2026) * 12 + new Date().getMonth() - 2, 0), 11),
       timetableGrade: initialTimetableGrade,
       timetableClassNum: initialTimetableClassNum,
       pendingApplications: JSON.parse(localStorage.getItem('samcheok_pending_applications')) || [],
-      groupSubjects: loadGroupSubjects(),
-      excludedSemesters: JSON.parse(localStorage.getItem('samcheok_excluded_semesters')) || [],
-      semesters: JSON.parse(localStorage.getItem('samcheok_semesters')) || getInitialGradeSemesters()
+      groupSubjects: {},
+      excludedSemesters: [],
+      semesters: getInitialGradeSemesters()
     };
 
     function syncUserSchoolInfo() {
@@ -2274,7 +2370,6 @@
       const isDark = safeTheme === 'dark';
       document.documentElement.classList.toggle('dark', isDark);
       document.body.classList.toggle('dark', isDark);
-      localStorage.setItem('samcheok-theme', safeTheme);
 
       const themeToggleButton = document.getElementById('themeToggleButton');
       if (themeToggleButton) {
@@ -2295,19 +2390,20 @@
     }
 
     function toggleTheme() {
-      const currentTheme = localStorage.getItem('samcheok-theme') === 'dark' ? 'dark' : 'light';
+      const currentTheme = accountPreferences.theme === 'dark' ? 'dark' : 'light';
       const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      accountPreferences.theme = nextTheme;
       applyTheme(nextTheme);
+      saveAccountPreferences({ theme: nextTheme });
     }
 
     window.onload = async function() {
-      if (!localStorage.getItem('samcheok-theme')) {
-        localStorage.setItem('samcheok-theme', 'light');
-      }
-      const initialTheme = localStorage.getItem('samcheok-theme') === 'dark' ? 'dark' : 'light';
+      await loadAccountPreferences();
+      const initialTheme = accountPreferences.theme === 'dark' ? 'dark' : 'light';
       applyTheme(initialTheme);
       syncUserSchoolInfo();
       await loadCustomCategories();
+      await syncBackendPosts();
       updateAuthUI();
       updateMealOrderHighlight();
       renderCategoryCounts();
@@ -2341,15 +2437,21 @@
       const mobileCategoryNav = document.getElementById('mobileCategoryNav');
       const mobileBoardNavButton = document.querySelector('.nav-tab-mobile[data-tab="board"]');
       if (mobileCategoryNav && mobileBoardNavButton) mobileBoardNavButton.after(mobileCategoryNav);
-      switchTab('home');
+      const initialRoute = getRouteFromPath();
+      state.activeCategory = initialRoute.category;
+      if (initialRoute.authMode) authMode = initialRoute.authMode;
+      updateMenuUrl(initialRoute.tabId, true, initialRoute.category);
+      switchTab(initialRoute.tabId, false);
+      if (initialRoute.tabId === 'board' && initialRoute.postId) {
+        const linkedPost = state.posts.find(post => String(post.id) === String(initialRoute.postId));
+        if (linkedPost) openPostDetail(linkedPost.id, false);
+      }
       const schoolTotalInput = document.getElementById('schoolTotalInput');
       if (state.schoolTotal > 0) schoolTotalInput.value = state.schoolTotal;
-      if (!localStorage.getItem('samcheok_semesters')) saveSemestersState();
       calculateGPA();
       renderMyPage();
       renderNotifications();
       updateSidebarScheduleDdays();
-      syncBackendPosts();
       setInterval(() => {
         if (state.user.isLoggedIn) syncBackendPosts();
       }, 30000);
@@ -2363,6 +2465,19 @@
 
     function savePostsState() {
       localStorage.setItem('samcheok_posts', JSON.stringify(state.posts));
+    }
+
+    function formatPostDate(createdAt, fallbackDate = '') {
+      const timestamp = createdAt ? new Date(createdAt) : null;
+      if (timestamp && !Number.isNaN(timestamp.getTime())) {
+        const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp.getTime()) / 60000));
+        if (elapsedMinutes < 1) return '방금 전';
+        if (elapsedMinutes < 60) return `${elapsedMinutes}분 전`;
+        const elapsedHours = Math.floor(elapsedMinutes / 60);
+        if (elapsedHours < 24) return `${elapsedHours}시간 전`;
+        return `${Math.floor(elapsedHours / 24)}일 전`;
+      }
+      return fallbackDate || '날짜 없음';
     }
 
     async function loadAcademicRecords() {
@@ -2380,7 +2495,6 @@
         setGradeSystem(state.gradeSystem);
         const schoolTotalInput = document.getElementById('schoolTotalInput');
         if (schoolTotalInput) schoolTotalInput.value = state.schoolTotal > 0 ? state.schoolTotal : '';
-        localStorage.setItem(`samcheok_academic_records_${state.user.id}`, JSON.stringify(getAcademicRecordsPayload()));
       } catch (error) {
         showToast('내신 성적을 불러오지 못했습니다.');
       }
@@ -2402,7 +2516,6 @@
           method: 'PATCH',
           body: JSON.stringify(getAcademicRecordsPayload())
         });
-        localStorage.setItem(`samcheok_academic_records_${state.user.id}`, JSON.stringify(getAcademicRecordsPayload()));
       } catch (error) {
         showToast('내신 성적 저장에 실패했습니다.');
       }
@@ -2497,11 +2610,12 @@
       `).join('') : '<p class="sm:col-span-2 py-10 text-center text-sm text-slate-400">검색 결과가 없습니다.</p>';
     }
 
-    function switchTab(tabId) {
+    function switchTab(tabId, updateUrl = true) {
       if (['admin', 'applications', 'users'].includes(tabId) && !state.user.isDeveloper) {
         showToast('관리자 계정만 이용할 수 있습니다.');
         return;
       }
+      if (updateUrl) updateMenuUrl(tabId, false, tabId === 'board' ? state.activeCategory : 'all');
       if (state.activeTab === 'auth' && tabId !== 'auth') resetAuthForm();
       pauseAllVideos();
       state.activeTab = tabId;
@@ -2537,7 +2651,10 @@
       if (rightSidebarWidgets) rightSidebarWidgets.classList.toggle('lg:hidden', tabId === 'auth');
       if (rightSidebarWidgets) rightSidebarWidgets.classList.toggle('hidden', tabId === 'auth' || !showMobileRightSidebar);
       if (rightSidebarWidgets && tabId !== 'auth') rightSidebarWidgets.classList.add('lg:block');
-      if (tabId === 'board') filterCategory('all');
+      if (tabId === 'board') {
+        renderCategoryCounts();
+        filterCategory(state.activeCategory || 'all', false);
+      }
 
       const adminNav = document.getElementById('nav-admin');
       const mobileAdminNav = document.getElementById('nav-admin-mobile');
@@ -2843,8 +2960,9 @@
       overlay.classList.add('hidden');
     }
 
-    function filterCategory(cat) {
+    function filterCategory(cat, updateUrl = true) {
       state.activeCategory = cat;
+      if (updateUrl) updateMenuUrl('board', false, cat);
       if (state.currentPostDetailId !== null) {
         state.currentPostDetailId = null;
         document.getElementById('view-post-detail').classList.add('hidden');
@@ -2878,6 +2996,9 @@
         ...document.querySelectorAll(`.cat-btn-${cat}`),
         ...document.querySelectorAll(`[data-category-id="${CSS.escape(cat)}"]`)
       ];
+      if (cat === 'grade1') {
+        activeCategoryButtons.push(...document.querySelectorAll('.cat-btn-grade'));
+      }
       activeCategoryButtons.forEach(btn => {
         btn.classList.add('bg-blue-100', 'text-blue-800', 'font-bold', 'shadow-xs');
         btn.classList.remove('text-slate-600', 'font-medium', 'hover:bg-slate-100');
@@ -3164,7 +3285,7 @@
       `).join('');
     }
 
-    function openPostDetail(id) {
+    function openPostDetail(id, updateUrl = true) {
       if (!state.user.isLoggedIn) {
         showToast('로그인 후 게시글 시스템을 이용할 수 있습니다.');
         openLoginRequiredModal();
@@ -3173,7 +3294,8 @@
       const post = state.posts.find(p => p.id === id);
       if (!post) return;
 
-      switchTab('board');
+      switchTab('board', false);
+      if (updateUrl) updatePostUrl(post);
       const isDifferentPost = state.currentPostDetailId !== id;
       if (isDifferentPost) pauseAllVideos();
       state.currentPostDetailId = id;
@@ -3314,26 +3436,16 @@
       return state.user.isDeveloper || String(post.authorId) === String(state.user.id) || post.ownerName === state.user.name || (!post.ownerName && post.author === state.user.name);
     }
 
-    function getScrapStorageKey() {
-      return `samcheok_scraps_${state.user.id || state.user.name}`;
-    }
-
     function getScrappedPostIds() {
       if (!state.user.isLoggedIn) return [];
-      try {
-        const scraps = JSON.parse(localStorage.getItem(getScrapStorageKey()) || '[]');
-        return Array.isArray(scraps) ? scraps : [];
-      } catch (error) {
-        localStorage.removeItem(getScrapStorageKey());
-        return [];
-      }
+      return Array.isArray(accountPreferences.scrappedPostIds) ? accountPreferences.scrappedPostIds : [];
     }
 
     function isScrapped(postId) {
       return getScrappedPostIds().some(id => String(id) === String(postId));
     }
 
-    function toggleScrap(postId) {
+    async function toggleScrap(postId) {
       if (!state.user.isLoggedIn) {
         showToast('로그인 후 게시글을 스크랩할 수 있습니다.');
         openLoginRequiredModal();
@@ -3343,7 +3455,8 @@
       const index = scraps.findIndex(id => String(id) === String(postId));
       if (index === -1) scraps.push(postId);
       else scraps.splice(index, 1);
-      localStorage.setItem(getScrapStorageKey(), JSON.stringify(scraps));
+      accountPreferences.scrappedPostIds = scraps;
+      await saveAccountPreferences({ scrappedPostIds: scraps });
       renderMyPage();
       openPostDetail(postId);
       showToast(index === -1 ? '게시글을 스크랩했습니다.' : '스크랩을 취소했습니다.');
@@ -3375,15 +3488,16 @@
       showToast('게시글이 삭제되었습니다.');
     }
 
-    function backToBoard() {
+    function backToBoard(updateUrl = true) {
       pauseAllVideos();
       state.currentPostDetailId = null;
+      if (updateUrl) updateMenuUrl('board', false, state.activeCategory || 'all');
       document.getElementById('view-post-detail').classList.add('hidden');
       document.getElementById('view-board').classList.remove('hidden');
       renderPosts();
     }
 
-    function toggleLikePost(id) {
+    async function toggleLikePost(id) {
       if (!state.user.isLoggedIn) {
         showToast('로그인 후 게시글 시스템을 이용할 수 있습니다.');
         openLoginRequiredModal();
@@ -3398,9 +3512,14 @@
           muted: video.muted,
           volume: video.volume
         } : null;
-        post.liked = !post.liked;
-        post.likes += post.liked ? 1 : -1;
-        savePostsState();
+        try {
+          const result = await apiRequest(`/posts/${id}/like`, { method: 'POST' });
+          post.liked = result.liked;
+          post.likes = result.likes;
+        } catch (error) {
+          showToast(error.message);
+          return;
+        }
         openPostDetail(id);
         if (playbackState) {
           requestAnimationFrame(() => {
@@ -3432,7 +3551,7 @@
       list.innerHTML = post.comments.map(c => `
         <div class="bg-slate-50/70 p-3 rounded-xl space-y-1">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-slate-800">${escapeHtml(c.author)}</span>
+            <span class="font-bold text-slate-800">${escapeHtml(state.user.isDeveloper && c.realAuthorName ? `익명 · 실제 작성자: ${c.realAuthorName}` : c.author)}</span>
             <div class="flex items-center gap-2">
               <span class="text-[10px] text-slate-400">${c.date || '방금 전'}</span>
               ${canDeleteComment(c) ? `<button onclick="deleteComment(${post.id}, ${c.id})" class="p-1.5 text-sm font-bold text-rose-500 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition" title="댓글 삭제"><i class="fa-regular fa-trash-can"></i></button>` : ''}
@@ -3501,7 +3620,7 @@
           body: JSON.stringify({ text, isAnonymous: isAnon, attachments })
         });
         post.comments.push({ ...comment, ownerName: state.user.name, date: '방금 전' });
-        if (isMyPost(post) && String(post.authorId) !== String(state.user.id)) {
+        if (String(post.authorId) === String(state.user.id) && String(comment.authorId) !== String(state.user.id)) {
           addNotification(`comment-${comment.id}`, `${post.title} 글에 새 댓글이 달렸습니다.`);
         }
         input.value = '';
@@ -3644,14 +3763,22 @@
       const mediaFiles = files.filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
       const regularFiles = files.filter(file => !file.type.startsWith('image/') && !file.type.startsWith('video/'));
 
-      for (const file of mediaFiles) await insertInlineMediaFile(file);
-      if (regularFiles.length > 0) handleAttachmentSelection(regularFiles);
+      try {
+        for (const file of mediaFiles) await insertInlineMediaFile(file);
+        if (regularFiles.length > 0) handleAttachmentSelection(regularFiles);
+      } catch (error) {
+        showToast(error.message || '선택한 파일을 읽지 못했습니다.');
+      }
       input.value = '';
     }
 
     async function insertInlineMediaFile(file) {
       if (!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))) return;
-      const dataUrl = file.type.startsWith('video/') ? URL.createObjectURL(file) : await readFileAsDataUrl(file);
+      if (file.size > 100 * 1024 * 1024) {
+        showToast('사진·영상은 파일당 100MB 이하로 첨부해주세요.');
+        return;
+      }
+      const dataUrl = file.type.startsWith('image/') ? await prepareImageForUpload(file) : await readFileAsDataUrl(file);
       const editor = document.getElementById('writeContent');
       const wrapper = document.createElement('span');
       wrapper.setAttribute('data-inline-wrapper', 'true');
@@ -3799,6 +3926,27 @@
       });
     }
 
+    function prepareImageForUpload(file) {
+      return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          const scale = 1;
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.84));
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('이 사진 형식은 브라우저에서 읽을 수 없습니다. JPG 또는 PNG로 변환해주세요.'));
+        };
+        image.src = objectUrl;
+      });
+    }
+
     function handleVideoError(video) {
       const fallback = video.dataset.fallback;
       if (fallback && video.src !== fallback) {
@@ -3888,6 +4036,10 @@
           dataUrl: await readFileAsDataUrl(file),
           previewUrl: file.type.startsWith('video/') ? URL.createObjectURL(file) : null
         })));
+        const uploadDataLength = attachmentData.reduce((total, file) => total + file.dataUrl.length, contentHtml.length);
+        if (uploadDataLength > 150 * 1024 * 1024) {
+          throw new Error('사진·영상 전체 용량이 너무 큽니다. 파일 수나 용량을 줄여주세요.');
+        }
 
         const newPost = {
           category: category,
@@ -3908,7 +4060,7 @@
           method: 'POST',
           body: JSON.stringify(newPost)
         });
-        state.posts.unshift({ ...newPost, ...savedPost, date: '방금 전' });
+        state.posts.unshift({ ...newPost, ...savedPost, date: formatPostDate(savedPost.createdAt, savedPost.date) });
         closeWriteModal();
 
         renderCategoryCounts();
@@ -3918,7 +4070,7 @@
         renderMyPage();
         showToast('새 글이 작성되었습니다!');
       } catch (error) {
-        showToast('파일을 처리하지 못했습니다. 다시 시도해주세요.');
+        showToast(error.message || '파일을 처리하지 못했습니다. 다시 시도해주세요.');
       } finally {
         submitButton.disabled = false;
         submitButton.classList.remove('opacity-60', 'cursor-not-allowed');
@@ -3989,7 +4141,7 @@
         if (input.value.trim()) state.groupSubjects[key] = input.value.trim();
         else delete state.groupSubjects[key];
       });
-      localStorage.setItem(`samcheok_group_subjects_${getAccountStorageSuffix()}`, JSON.stringify(state.groupSubjects));
+      queueAccountPreferencesSave({ groupSubjects: state.groupSubjects });
       renderTimetable();
       renderHomeTimetable();
       closeGroupSubjectModal();
@@ -4039,53 +4191,16 @@
       `).join('');
     }
 
-    function getCustomSchedulesStorageKey() {
-      return `samcheok_custom_schedules_${getAccountStorageSuffix()}`;
-    }
-
     async function getCustomSchedules() {
       if (!state.user?.isLoggedIn) {
-        const saved = localStorage.getItem(getCustomSchedulesStorageKey());
-        if (!saved) return [];
-        try {
-          const parsed = JSON.parse(saved);
-          if (!Array.isArray(parsed)) return [];
-          return parsed.filter(item => item && item.id && item.date && item.title && item.title.trim());
-        } catch (error) {
-          return [];
-        }
+        return [];
       }
 
       try {
         const response = await apiRequest('/custom-schedules');
         return Array.isArray(response) ? response.filter(item => item && item.id && item.date && item.title && item.title.trim()) : [];
       } catch (error) {
-        const saved = localStorage.getItem(getCustomSchedulesStorageKey());
-        if (!saved) return [];
-        try {
-          const parsed = JSON.parse(saved);
-          return Array.isArray(parsed) ? parsed.filter(item => item && item.id && item.date && item.title && item.title.trim()) : [];
-        } catch (error) {
-          return [];
-        }
-      }
-    }
-
-    async function saveCustomSchedules(items) {
-      if (!state.user?.isLoggedIn) {
-        localStorage.setItem(getCustomSchedulesStorageKey(), JSON.stringify(items));
-        return;
-      }
-
-      try {
-        const response = await apiRequest('/custom-schedules', {
-          method: 'POST',
-          body: JSON.stringify({ title: items[items.length - 1].title, date: items[items.length - 1].date })
-        });
-        localStorage.setItem(getCustomSchedulesStorageKey(), JSON.stringify(items));
-        return response;
-      } catch (error) {
-        localStorage.setItem(getCustomSchedulesStorageKey(), JSON.stringify(items));
+        return [];
       }
     }
 
@@ -4186,8 +4301,7 @@
         .filter(([dateKey, title]) => {
           const target = new Date(`${dateKey}T00:00:00`);
           if (Number.isNaN(target.getTime())) return false;
-          if (target < today) return false;
-          return isWithinUpcomingMonth(dateKey) || MAJOR_EXAM_TITLES.has(title.trim());
+          return target >= today;
         })
         .forEach(([dateKey, title]) => {
           const key = title.trim();
@@ -4224,7 +4338,13 @@
       const activeCustomItems = allCustomItems.filter(item => !isPastCustomSchedule(item.date) && isWithinUpcomingMonth(item.date));
       const expiredCustomItems = allCustomItems.filter(item => isPastCustomSchedule(item.date)).sort((a, b) => b.date.localeCompare(a.date));
       const academicItems = getCurrentMonthAcademicEntries();
-      const items = [...activeCustomItems, ...academicItems].sort((a, b) => a.date.localeCompare(b.date));
+      const visibleAcademicItems = state.showAllAcademicSchedules ? academicItems : academicItems.slice(0, 5);
+      const items = [...activeCustomItems, ...visibleAcademicItems].sort((a, b) => a.date.localeCompare(b.date));
+      const toggle = document.getElementById('academicScheduleToggle');
+      if (toggle) {
+        toggle.classList.toggle('hidden', academicItems.length <= 5);
+        toggle.textContent = state.showAllAcademicSchedules ? '기본 일정 접기' : `기본 일정 ${academicItems.length - 5}개 더 보기`;
+      }
 
       if (!items.length) {
         container.innerHTML = '<div class="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-center text-[11px] text-slate-500">아직 추가한 일정이 없습니다.</div>';
@@ -4291,6 +4411,11 @@
         expiredSection.classList.add('hidden');
         if (expiredContainer) expiredContainer.innerHTML = '';
       }
+    }
+
+    function toggleAcademicScheduleList() {
+      state.showAllAcademicSchedules = !state.showAllAcademicSchedules;
+      renderCustomScheduleList();
     }
 
     document.addEventListener('click', function(event) {
@@ -4425,7 +4550,6 @@
         }
       }
 
-      localStorage.setItem(getCustomSchedulesStorageKey(), JSON.stringify(items));
       closeCustomScheduleModal();
       renderCustomScheduleList();
       renderAnnualCalendar();
@@ -4433,7 +4557,6 @@
     }
 
     async function deleteCustomSchedule(scheduleId) {
-      const items = (await getCustomSchedules()).filter(item => item.id !== scheduleId);
       if (state.user?.isLoggedIn) {
         try {
           await apiRequest(`/custom-schedules/${scheduleId}`, { method: 'DELETE' });
@@ -4441,7 +4564,6 @@
           showToast(error.message || '서버 삭제에 실패했습니다.');
         }
       }
-      localStorage.setItem(getCustomSchedulesStorageKey(), JSON.stringify(items));
       renderCustomScheduleList();
       renderAnnualCalendar();
       showToast('일정이 삭제되었습니다.');
@@ -4469,8 +4591,7 @@
         customScheduleMap.get(item.date).push(item.title);
       });
       const events = ACADEMIC_EVENTS;
-      const themeFromStorage = localStorage.getItem('samcheok-theme');
-      const isDarkMode = themeFromStorage === 'dark';
+      const isDarkMode = accountPreferences.theme === 'dark';
 
       const firstDay = new Date(year, month, 1).getDay();
       const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -4593,7 +4714,9 @@
       }
 
       state.timetable[day][period] = subject;
-      localStorage.setItem(`samcheok_tt_${getAccountStorageSuffix()}_${state.timetableGrade}-${state.timetableClassNum}`, JSON.stringify(state.timetable));
+      const timetableKey = `${state.timetableGrade}-${state.timetableClassNum}`;
+      const timetables = { ...(accountPreferences.timetables || {}), [timetableKey]: state.timetable };
+      queueAccountPreferencesSave({ timetables });
       renderTimetable();
       renderHomeTimetable();
       closeAddSubjectModal();
@@ -4756,9 +4879,7 @@
       state.schoolTotal = Number.isFinite(total) && total > 0 ? Math.min(total, 1000000) : 0;
 
       if (state.schoolTotal > 0) {
-        localStorage.setItem('samcheok_school_total', String(state.schoolTotal));
       } else {
-        localStorage.removeItem('samcheok_school_total');
         container.innerHTML = '<p class="py-4 text-center text-xs text-slate-400">학교 총원을 입력하면 등급별 등수 범위가 표시됩니다.</p>';
         queueAcademicRecordsSave();
         return;
@@ -5004,7 +5125,6 @@
     }
 
     function saveSemestersState() {
-      localStorage.setItem('samcheok_semesters', JSON.stringify(state.semesters));
       queueAcademicRecordsSave();
     }
 
@@ -5014,7 +5134,6 @@
       } else if (!state.excludedSemesters.includes(semKey)) {
         state.excludedSemesters.push(semKey);
       }
-      localStorage.setItem('samcheok_excluded_semesters', JSON.stringify(state.excludedSemesters));
       queueAcademicRecordsSave();
       calculateGPA();
     }
@@ -5133,6 +5252,7 @@
 
     function openAuthModal(mode) {
       authMode = mode;
+      updateMenuUrl('auth');
       closeLoginRequiredModal();
       document.getElementById('authModal').classList.add('hidden');
       switchTab('auth');
@@ -5149,6 +5269,9 @@
       document.getElementById('authPageStudentCardField').classList.toggle('hidden', mode === 'login');
       document.getElementById('authPageClassFields').classList.toggle('hidden', mode === 'login');
       document.getElementById('authPageConsentField').classList.toggle('hidden', mode === 'login');
+      document.getElementById('authPagePasswordConfirmField').classList.toggle('hidden', mode === 'login');
+      document.getElementById('authPageRememberField').classList.toggle('hidden', mode !== 'login');
+      document.getElementById('authPageRememberInput').checked = localStorage.getItem(AUTH_REMEMBER_KEY) === 'true';
       document.getElementById('authPagePasswordInput').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
       document.getElementById('authPageUsernameInput').placeholder = mode === 'login' ? '아이디를 입력하세요' : '영문과 숫자 조합 6자 이상';
       document.getElementById('authPagePasswordInput').type = 'password';
@@ -5164,7 +5287,7 @@
     }
 
     function resetAuthForm() {
-      ['authNameInput', 'authUsernameInput', 'authPasswordInput', 'authPageNameInput', 'authPageStudentIdInput', 'authPageEmailInput', 'authPageUsernameInput', 'authPagePasswordInput'].forEach(id => {
+      ['authNameInput', 'authUsernameInput', 'authPasswordInput', 'authPageNameInput', 'authPageStudentIdInput', 'authPageEmailInput', 'authPageUsernameInput', 'authPagePasswordInput', 'authPagePasswordConfirmInput'].forEach(id => {
         document.getElementById(id).value = '';
       });
       document.getElementById('authPageStudentCardInput').value = '';
@@ -5172,6 +5295,7 @@
       document.getElementById('authPageStudentCardPreview').src = '';
       document.getElementById('authPageStudentCardPreviewArea').classList.add('hidden');
       document.getElementById('authPageConsentInput').checked = false;
+      document.getElementById('authPageRememberInput').checked = false;
       document.getElementById('authPagePasswordInput').type = 'password';
       document.getElementById('passwordVisibilityButton').innerHTML = '<i class="fa-regular fa-eye"></i>';
       document.getElementById('passwordVisibilityButton').title = '비밀번호 보기';
@@ -5220,6 +5344,7 @@
     async function submitAuthForm() {
       const username = document.getElementById('authPageUsernameInput').value.trim();
       const password = document.getElementById('authPagePasswordInput').value;
+      const passwordConfirm = document.getElementById('authPagePasswordConfirmInput').value;
 
       if (!username || !password) {
         showToast('아이디와 비밀번호를 입력해주세요.');
@@ -5231,6 +5356,10 @@
       }
       if (authMode === 'signup' && !/^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/.test(password)) {
         showToast('비밀번호는 영문, 숫자, 특수기호를 조합해 8자 이상 입력해주세요.');
+        return;
+      }
+      if (authMode === 'signup' && password !== passwordConfirm) {
+        showToast('비밀번호가 일치하지 않습니다.');
         return;
       }
 
@@ -5281,6 +5410,7 @@
         formData.append('email', email);
         formData.append('username', username);
         formData.append('password', password);
+        formData.append('passwordConfirm', passwordConfirm);
         formData.append('grade', String(grade));
         formData.append('classNumber', String(classNum));
         formData.append('studentCard', studentCardFile);
@@ -5308,10 +5438,14 @@
           isStudentMember: result.user.isStudentMember === true,
           isLoggedIn: true
         };
+        const rememberLogin = document.getElementById('authPageRememberInput').checked;
+        if (rememberLogin) localStorage.setItem(AUTH_REMEMBER_KEY, 'true');
+        else localStorage.removeItem(AUTH_REMEMBER_KEY);
         getAuthStorage().setItem(AUTH_TOKEN_KEY, result.token);
         getAuthStorage().setItem(AUTH_SESSION_KEY, JSON.stringify(user));
-        localStorage.removeItem(AUTH_TOKEN_KEY);
-        localStorage.removeItem(AUTH_SESSION_KEY);
+        const otherStorage = rememberLogin ? sessionStorage : localStorage;
+        otherStorage.removeItem(AUTH_TOKEN_KEY);
+        otherStorage.removeItem(AUTH_SESSION_KEY);
         state.user = user;
         state.groupSubjects = loadGroupSubjects();
         state.notifications = loadNotifications();
@@ -5335,6 +5469,7 @@
       getAuthStorage().removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(AUTH_SESSION_KEY);
       localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(AUTH_REMEMBER_KEY);
       updateAdminApplicationBadge(0);
       state.user = { name: '게스트', grade: 1, classNum: 1, isLoggedIn: false };
       teacherDirectory = [];
@@ -6025,6 +6160,11 @@
         notices.sort((first, second) => new Date(second.createdAt || second.date || second.id).getTime() - new Date(first.createdAt || first.date || first.id).getTime());
         renderNotices();
         renderHome();
+        const route = getRouteFromPath();
+        if (route.tabId === 'notices' && route.noticeId) {
+          const linkedNotice = notices.find(notice => String(notice.id) === String(route.noticeId));
+          if (linkedNotice) openNoticeDetail(linkedNotice.id, false);
+        }
       } catch (error) {
         showToast(error.message);
       }
@@ -6145,20 +6285,22 @@
       `).join('');
     }
 
-    function backToNoticeList() {
+    function backToNoticeList(updateUrl = true) {
+      if (updateUrl) updateMenuUrl('notices', false);
       document.getElementById('view-notice-detail').classList.add('hidden');
       document.getElementById('view-notices').classList.remove('hidden');
     }
 
-    function openNoticeDetail(id) {
+    function openNoticeDetail(id, updateUrl = true) {
       const notice = notices.find(item => item.id === id);
       const detail = document.getElementById('noticeDetailBody');
       const detailView = document.getElementById('view-notice-detail');
       const listView = document.getElementById('view-notices');
       if (!notice || !detail || !detailView || !listView) return;
+      if (updateUrl) updateNoticeUrl(notice);
 
       if (state.activeTab !== 'notices') {
-        switchTab('notices');
+        switchTab('notices', false);
         setTimeout(() => {
           const nextNotice = notices.find(item => item.id === id);
           if (!nextNotice) return;

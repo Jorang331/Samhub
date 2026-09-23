@@ -44,6 +44,8 @@ npm start
 
 - `POST /api/auth/signup` (multipart: `studentCard`)
 - `POST /api/auth/login`
+- `GET/PATCH /api/auth/preferences` (계정별 스크랩·시간표·선택 과목·테마)
+- `GET/PATCH /api/auth/academic-records` (계정별 내신 성적 계산 데이터)
 - `GET /api/teachers` (로그인 필요)
 - `GET /api/categories` (로그인 필요)
 - `POST /api/admin/categories` (관리자 전용)
@@ -53,6 +55,7 @@ npm start
 - `PATCH /api/admin/applications/:id/approve`
 - `PATCH /api/admin/applications/:id/reject`
 - `GET/POST /api/posts`
+- `POST /api/posts/:id/like` (계정별 공감 토글)
 - `DELETE /api/posts/:id`
 - `POST /api/posts/:id/comments`
 - `DELETE /api/posts/:postId/comments/:commentId`

@@ -25,7 +25,7 @@ const DB_FILE = path.join(DATA_DIR, 'database.json');
 const CATEGORY_ICONS = new Set(['folder', 'users', 'book', 'star', 'bullhorn', 'calendar', 'music', 'camera']);
 const CATEGORY_COLORS = new Set(['slate', 'blue', 'emerald', 'indigo', 'orange', 'rose', 'amber', 'cyan']);
 const MAX_POST_ATTACHMENTS = 5;
-const MAX_POST_ATTACHMENT_DATA_LENGTH = 28 * 1024 * 1024;
+const MAX_POST_ATTACHMENT_DATA_LENGTH = 100 * 1024 * 1024;
 
 for (const directory of [DATA_DIR, UPLOAD_DIR]) fs.mkdirSync(directory, { recursive: true });
 if (!fs.existsSync(DB_FILE)) {
@@ -44,7 +44,7 @@ app.use(cors({
 		return callback(new Error('Origin is not allowed.'));
 	}
 }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.disable('x-powered-by');
 app.use((request, response, next) => {
@@ -108,11 +108,21 @@ app.get('/api/teachers', requireAuth, (request, response) => {
 });
 
 app.post('/api/auth/signup', upload.single('studentCard'), async (request, response) => {
-	const { name, studentNumber, email, username, password, grade, classNumber } = request.body;
+	const { name, studentNumber, email, username, password, passwordConfirm, grade, classNumber } = request.body;
 	if (!name || !studentNumber || !email || !username || !password || !grade || !classNumber || !request.file) {
 		return response.status(400).json({ message: '모든 필드를 입력해주세요.' });
 	}
+	if (password !== passwordConfirm) {
+		fs.unlinkSync(request.file.path);
+		return response.status(400).json({ message: '비밀번호가 일치하지 않습니다.' });
+	}
 	const database = readDb();
+	const normalizedUsername = String(username).trim().toLowerCase();
+	const isSameUsername = record => String(record.username || '').trim().toLowerCase() === normalizedUsername;
+	if (normalizedUsername === String(process.env.ADMIN_USERNAME || '').trim().toLowerCase() || database.users.some(isSameUsername) || database.applications.some(isSameUsername)) {
+		fs.unlinkSync(request.file.path);
+		return response.status(409).json({ message: '이미 사용 중이거나 가입 신청 중인 아이디입니다.' });
+	}
 	const normalizedStudentNumber = String(studentNumber).trim();
 	const normalizedGrade = Number(grade);
 	const normalizedClassNumber = Number(classNumber);
@@ -127,7 +137,7 @@ app.post('/api/auth/signup', upload.single('studentCard'), async (request, respo
 	const passwordHash = await bcrypt.hash(password, 10);
 	const application = {
 		id: Date.now(),
-		name, studentNumber: normalizedStudentNumber, email, username, passwordHash,
+		name, studentNumber: normalizedStudentNumber, email, username: normalizedUsername, passwordHash,
 		grade: normalizedGrade, classNumber: normalizedClassNumber,
 		studentCardPath: request.file.path,
 		status: 'pending',
@@ -142,10 +152,11 @@ app.post('/api/auth/login', async (request, response) => {
 	const { username, password } = request.body;
 	if (!username || !password) return response.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
 	const database = readDb();
-	let user = database.users.find(u => u.username === username);
+	const normalizedUsername = String(username).trim().toLowerCase();
+	let user = database.users.find(u => String(u.username || '').trim().toLowerCase() === normalizedUsername);
 	let role = 'student';
 	if (!user) {
-		if (username === process.env.ADMIN_USERNAME) {
+		if (normalizedUsername === String(process.env.ADMIN_USERNAME || '').trim().toLowerCase()) {
 			const passwordMatch = await bcrypt.compare(password, await bcrypt.hash(process.env.ADMIN_PASSWORD, 10));
 			if (!passwordMatch) return response.status(401).json({ message: '아이디 또는 비밀번호가 잘못되었습니다.' });
 			role = 'admin';
@@ -244,6 +255,40 @@ app.patch('/api/auth/academic-records', requireAuth, (request, response) => {
 	};
 	writeDb(database);
 	response.json(user.academicRecords);
+});
+
+app.get('/api/auth/preferences', requireAuth, (request, response) => {
+	if (request.auth.role === 'admin') return response.json({});
+	const database = readDb();
+	const user = database.users.find(record => String(record.id) === String(request.auth.id));
+	if (!user) return response.status(404).json({ message: '계정을 찾을 수 없습니다.' });
+	response.json(user.preferences || {});
+});
+
+app.patch('/api/auth/preferences', requireAuth, (request, response) => {
+	if (request.auth.role === 'admin') return response.status(403).json({ message: '관리자 계정에는 개인 설정을 저장할 수 없습니다.' });
+	const database = readDb();
+	const user = database.users.find(record => String(record.id) === String(request.auth.id));
+	if (!user) return response.status(404).json({ message: '계정을 찾을 수 없습니다.' });
+	const preferences = request.body || {};
+	if (preferences.scrappedPostIds !== undefined && (!Array.isArray(preferences.scrappedPostIds) || preferences.scrappedPostIds.length > 500)) {
+		return response.status(400).json({ message: '스크랩 데이터 형식이 올바르지 않습니다.' });
+	}
+	if (preferences.timetables !== undefined && (typeof preferences.timetables !== 'object' || Array.isArray(preferences.timetables))) {
+		return response.status(400).json({ message: '시간표 데이터 형식이 올바르지 않습니다.' });
+	}
+	if (preferences.groupSubjects !== undefined && (typeof preferences.groupSubjects !== 'object' || Array.isArray(preferences.groupSubjects))) {
+		return response.status(400).json({ message: '선택 과목 데이터 형식이 올바르지 않습니다.' });
+	}
+	user.preferences = {
+		...(user.preferences || {}),
+		...(preferences.scrappedPostIds !== undefined ? { scrappedPostIds: preferences.scrappedPostIds.map(String) } : {}),
+		...(preferences.timetables !== undefined ? { timetables: preferences.timetables } : {}),
+		...(preferences.groupSubjects !== undefined ? { groupSubjects: preferences.groupSubjects } : {}),
+		...(preferences.theme === 'dark' || preferences.theme === 'light' ? { theme: preferences.theme } : {})
+	};
+	writeDb(database);
+	response.json(user.preferences);
 });
 
 app.post('/api/inquiries', (request, response) => {
@@ -366,13 +411,14 @@ app.post('/api/admin/teachers', requireAuth, requireAdmin, async (request, respo
 	if (password.length < 8 || password.length > 100) return response.status(400).json({ message: '비밀번호는 8~100자로 입력해주세요.' });
 	if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return response.status(400).json({ message: '이메일 형식이 올바르지 않습니다.' });
 	const database = readDb();
-	if (username === process.env.ADMIN_USERNAME || database.users.some(user => user.username === username)) {
+	const normalizedUsername = username.toLowerCase();
+	if (normalizedUsername === String(process.env.ADMIN_USERNAME || '').trim().toLowerCase() || database.users.some(user => String(user.username || '').toLowerCase() === normalizedUsername)) {
 		return response.status(409).json({ message: '이미 사용 중인 아이디입니다.' });
 	}
 	const teacher = {
 		id: Date.now(),
 		name,
-		username,
+		username: normalizedUsername,
 		email,
 		passwordHash: await bcrypt.hash(password, 10),
 		role: 'teacher',
@@ -456,14 +502,20 @@ app.patch('/api/admin/applications/:id/reject', requireAuth, requireAdmin, async
 app.get('/api/posts', requireAuth, (request, response) => {
 	const database = readDb();
 	const posts = database.posts.map(post => {
-		if (!post.poll) return post;
+		const liked = Boolean(post.likedBy?.[String(request.auth.id)]);
+		const postWithLike = { ...post, liked, likes: Number(post.likes || 0) };
+		if (!post.poll) return postWithLike;
 		const userVote = post.poll.votes?.[String(request.auth.id)] || null;
-		return { ...post, poll: { question: post.poll.question, options: post.poll.options, closed: post.poll.closed === true, userVote } };
+		return { ...postWithLike, poll: { question: post.poll.question, options: post.poll.options, closed: post.poll.closed === true, userVote } };
 	});
 	if (request.auth.role === 'admin') {
 		return response.json(posts.map(post => ({
 			...post,
-			realAuthorName: database.users.find(user => String(user.id) === String(post.authorId))?.name || null
+			realAuthorName: database.users.find(user => String(user.id) === String(post.authorId))?.name || null,
+			comments: (post.comments || []).map(comment => ({
+				...comment,
+				realAuthorName: database.users.find(user => String(user.id) === String(comment.authorId))?.name || null
+			}))
 		})));
 	}
 	response.json(posts.filter(post => {
@@ -612,6 +664,14 @@ app.delete('/api/custom-schedules/:id', requireAuth, (request, response) => {
 });
 app.post('/api/posts', requireAuth, (request, response) => {
 	const database = readDb();
+	const attachments = Array.isArray(request.body.attachments) ? request.body.attachments : [];
+	const attachmentDataLength = attachments.reduce((total, file) => total + (typeof file?.dataUrl === 'string' ? file.dataUrl.length : 0), 0);
+	if (attachments.length > MAX_POST_ATTACHMENTS || attachments.some(file => !file || typeof file.dataUrl !== 'string' || file.dataUrl.length > MAX_POST_ATTACHMENT_DATA_LENGTH)) {
+		return response.status(400).json({ message: '첨부 파일은 최대 5개이며 파일당 100MB 이하로 첨부해주세요.' });
+	}
+	if (attachmentDataLength > 150 * 1024 * 1024) {
+		return response.status(400).json({ message: '첨부 파일 전체 용량이 너무 큽니다. 파일 수나 용량을 줄여주세요.' });
+	}
 	const requestedCategory = request.body.category === 'freshman' ? 'grade1' : request.body.category;
 	if (requestedCategory === 'club' && request.auth.role !== 'admin' && !request.auth.isClubLeader && !request.auth.isStudentMember) {
 		return response.status(403).json({ message: '동아리장 또는 학생회원만 동아리·학생회 게시판에 글을 작성할 수 있습니다.' });
@@ -636,11 +696,27 @@ app.post('/api/posts', requireAuth, (request, response) => {
 			votes: {}
 		};
 	}
-	const post = { id: Date.now(), authorId: request.auth.id, ...request.body, poll, category: requestedCategory, createdAt: new Date().toISOString(), comments: [], likes: 0 };
+	const post = { id: Date.now(), authorId: request.auth.id, ...request.body, poll, category: requestedCategory, createdAt: new Date().toISOString(), comments: [], likes: 0, likedBy: {} };
 	database.posts.push(post);
 	writeDb(database);
 	const { votes, ...publicPoll } = poll || {};
 	response.status(201).json({ ...post, poll: poll ? { ...publicPoll, userVote: null } : null });
+});
+app.post('/api/posts/:id/like', requireAuth, (request, response) => {
+	const database = readDb();
+	const post = database.posts.find(record => String(record.id) === String(request.params.id));
+	if (!post) return response.status(404).json({ message: '게시글을 찾을 수 없습니다.' });
+	if (!post.likedBy || typeof post.likedBy !== 'object') post.likedBy = {};
+	const userId = String(request.auth.id);
+	if (post.likedBy[userId]) {
+		delete post.likedBy[userId];
+		post.likes = Math.max(0, Number(post.likes || 0) - 1);
+	} else {
+		post.likedBy[userId] = true;
+		post.likes = Number(post.likes || 0) + 1;
+	}
+	writeDb(database);
+	response.json({ liked: Boolean(post.likedBy[userId]), likes: post.likes });
 });
 app.post('/api/posts/:id/poll-vote', requireAuth, (request, response) => {
 	const database = readDb();
@@ -715,6 +791,20 @@ app.delete('/api/posts/:postId/comments/:commentId', requireAuth, (request, resp
 	post.comments = post.comments.filter(record => String(record.id) !== request.params.commentId);
 	writeDb(database);
 	response.status(204).end();
+});
+
+app.get(['/home', '/board', '/board/:category', '/board/:category/:postId', '/notices', '/notices/:noticeId', '/timetable', '/cafeteria', '/schedule', '/calculator', '/teachers', '/mypage', '/auth', '/auth/:mode', '/admin', '/applications', '/users'], (request, response) => {
+	response.sendFile(path.join(__dirname, '..', 'samhub.html'));
+});
+
+app.use((error, request, response, next) => {
+	if (error instanceof multer.MulterError) {
+		if (error.code === 'LIMIT_FILE_SIZE') return response.status(413).json({ message: '업로드 파일은 5MB 이하로 첨부해주세요.' });
+		return response.status(400).json({ message: '업로드 파일을 확인해주세요.' });
+	}
+	if (error.type === 'entity.too.large') return response.status(413).json({ message: '업로드 전체 용량이 너무 큽니다. 파일 수나 용량을 줄여주세요.' });
+	console.error('Request error:', error.message);
+	return response.status(500).json({ message: '서버에서 파일을 처리하지 못했습니다.' });
 });
 
 const server = app.listen(PORT, () => console.log(`Samcheok HUB backend listening on http://localhost:${PORT}`));
